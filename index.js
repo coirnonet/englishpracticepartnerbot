@@ -133,3 +133,15 @@ bot.on("successful_payment", msg => {
     "✅ Payment successful!\n⭐ Premium activated for 7 days.\nEnjoy English practice 🎉"
   );
 });
+
+const express = require("express");
+const app = express();
+
+app.get("/", (req, res) => {
+  res.send("Bot is running");
+});
+
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+  console.log("Server running on port " + PORT);
+});
