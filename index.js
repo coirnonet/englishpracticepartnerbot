@@ -2,44 +2,7 @@ const TelegramBot = require("node-telegram-bot-api");
 const fs = require("fs");
 const express = require("express");
 
-bot.onText(/\/upgrade/, async (msg) => {
-  const chatId = msg.chat.id;
-
-  await bot.sendInvoice(
-    chatId,
-    "English Practice Partner – Premium",
-    "Unlimited practice, explanations & chat for 7 days",
-    "premium_7_days",              // payload
-    "",                             // provider_token EMPTY for Stars
-    "XTR",                          // currency for Telegram Stars
-    [
-      { label: "Premium (7 days)", amount: 10 } // 10 Stars
-    ]
-  );
-});
-
-bot.on("pre_checkout_query", (query) => {
-  bot.answerPreCheckoutQuery(query.id, true);
-});
-
-bot.on("successful_payment", (msg) => {
-  const userId = msg.from.id;
-
-  if (!users[userId]) {
-    users[userId] = { freeCount: 0, premiumUntil: 0 };
-  }
-
-  users[userId].premiumUntil = Date.now() + 7 * 24 * 60 * 60 * 1000; // 7 days
-  users[userId].freeCount = 0;
-  saveUsers();
-
-  bot.sendMessage(
-    msg.chat.id,
-    "✅ Payment successful!\n⭐ Premium activated for 7 days 🎉"
-  );
-});
-
-
+/* -------------------- BOT INIT -------------------- */
 const TOKEN = process.env.BOT_TOKEN;
 const bot = new TelegramBot(TOKEN, { polling: true });
 
@@ -57,6 +20,7 @@ function isPremium(id) {
 }
 
 function addPremium(id) {
+  users[id] = users[id] || { freeCount: 0, premiumUntil: 0 };
   users[id].premiumUntil = Date.now() + 7 * 24 * 60 * 60 * 1000;
   users[id].freeCount = 0;
   saveUsers();
@@ -67,13 +31,11 @@ function addPremium(id) {
 // START
 bot.onText(/\/start/, (msg) => {
   const id = msg.from.id;
-  if (!users[id]) {
-    users[id] = { freeCount: 0, premiumUntil: 0 };
-    saveUsers();
-  }
+  users[id] = users[id] || { freeCount: 0, premiumUntil: 0 };
+  saveUsers();
 
   bot.sendMessage(
-    id,
+    msg.chat.id,
 `👋 Welcome to *English Practice Partner*
 
 🆓 Free: 3 practices/day
@@ -93,27 +55,26 @@ bot.onText(/\/practice/, (msg) => {
 
   if (!isPremium(id) && users[id].freeCount >= 3) {
     return bot.sendMessage(
-      id,
+      msg.chat.id,
       "❌ Daily free limit reached.\nUpgrade to continue ➜ /upgrade"
     );
   }
 
-  bot.sendMessage(id, "✍️ Send your English sentence:");
+  bot.sendMessage(msg.chat.id, "✍️ Send your English sentence:");
 
   bot.once("message", (m) => {
     if (!m.text || m.text.startsWith("/")) return;
 
-    let corrected = m.text; // placeholder
-    let reply = `✅ Corrected:\n${corrected}`;
+    let reply = `✅ Corrected:\n${m.text}`;
 
     if (isPremium(id)) {
       reply += `\n\n📘 Explanation:\nThe sentence has been corrected for proper grammar and tense.`;
     } else {
-      users[id].freeCount += 1;
+      users[id].freeCount++;
       saveUsers();
     }
 
-    bot.sendMessage(id, reply);
+    bot.sendMessage(msg.chat.id, reply);
   });
 });
 
@@ -121,70 +82,41 @@ bot.onText(/\/practice/, (msg) => {
 bot.onText(/\/chat/, (msg) => {
   const id = msg.from.id;
   if (!isPremium(id)) {
-    return bot.sendMessage(id, "⭐ Chat mode is premium.\nUse /upgrade");
+    return bot.sendMessage(msg.chat.id, "⭐ Chat mode is premium.\nUse /upgrade");
   }
-  bot.sendMessage(id, "🗣️ Chat mode activated. Start chatting in English!");
+  bot.sendMessage(msg.chat.id, "🗣️ Chat mode activated. Start chatting!");
 });
 
-// STATUS
-bot.onText(/\/status/, (msg) => {
-  const id = msg.from.id;
-  if (isPremium(id)) {
-    bot.sendMessage(id, "⭐ Premium active\n⏳ Valid for 7 days");
-  } else {
-    bot.sendMessage(id, "🆓 Free user\nUpgrade ➜ /upgrade");
-  }
-});
+/* -------------------- STARS UPGRADE -------------------- */
 
-/* -------------------- UPGRADE (STARS) -------------------- */
-
-bot.onText(/\/upgrade/, (msg) => {
-  bot.sendMessage(
+bot.onText(/\/upgrade/, async (msg) => {
+  await bot.sendInvoice(
     msg.chat.id,
-`⭐ *Premium Plan*
-
-• Unlimited practice
-• Full grammar explanation
-• Conversation mode
-
-💰 Price: *10 Stars / 7 days*
-⚠️ Stars are non-refundable.`,
-    {
-      parse_mode: "Markdown",
-      reply_markup: {
-        inline_keyboard: [
-          [{ text: "⭐ Upgrade for 10 Stars", pay: true }]
-        ]
-      }
-    }
+    "English Practice Partner – Premium",
+    "Unlimited practice, explanations & chat for 7 days",
+    "premium_7_days",
+    "",          // provider token EMPTY for Stars
+    "XTR",       // Stars currency
+    [{ label: "Premium (7 days)", amount: 10 }]
   );
 });
 
-// REQUIRED FOR PAYMENT
-bot.on("pre_checkout_query", (query) => {
-  bot.answerPreCheckoutQuery(query.id, true);
+// REQUIRED
+bot.on("pre_checkout_query", (q) => {
+  bot.answerPreCheckoutQuery(q.id, true);
 });
 
 // PAYMENT SUCCESS
 bot.on("successful_payment", (msg) => {
-  const id = msg.from.id;
-  addPremium(id);
-
+  addPremium(msg.from.id);
   bot.sendMessage(
     msg.chat.id,
     "✅ Payment successful!\n⭐ Premium activated for 7 days 🎉"
   );
 });
 
-/* -------------------- DUMMY HTTP SERVER (RENDER) -------------------- */
-
+/* -------------------- RENDER HTTP SERVER -------------------- */
 const app = express();
-
-app.get("/", (req, res) => {
-  res.send("English Practice Partner Bot is running");
-});
-
+app.get("/", (_, res) => res.send("Bot running"));
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log("HTTP server running on port " + PORT);
-});
+app.listen(PORT, () => console.log("Server running on " + PORT));
