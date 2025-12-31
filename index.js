@@ -1,12 +1,40 @@
+/***********************
+ * English Practice Partner
+ * Webhook + Telegram Stars
+ * Render FREE compatible
+ ************************/
+
 const TelegramBot = require("node-telegram-bot-api");
-const fs = require("fs");
 const express = require("express");
+const fs = require("fs");
 
-/* -------------------- BOT INIT -------------------- */
+/* ---------- CONFIG ---------- */
 const TOKEN = process.env.BOT_TOKEN;
-const bot = new TelegramBot(TOKEN, { polling: true });
+const APP_URL = process.env.RENDER_EXTERNAL_URL; // Render auto provides
+const PORT = process.env.PORT || 3000;
 
-/* -------------------- DATABASE -------------------- */
+/* ---------- BOT ---------- */
+const bot = new TelegramBot(TOKEN);
+const app = express();
+app.use(express.json());
+
+/* ---------- WEBHOOK ---------- */
+bot.setWebHook(`${APP_URL}/bot${TOKEN}`);
+
+app.post(`/bot${TOKEN}`, (req, res) => {
+  bot.processUpdate(req.body);
+  res.sendStatus(200);
+});
+
+app.get("/", (req, res) => {
+  res.send("English Practice Partner Bot is running");
+});
+
+app.listen(PORT, () => {
+  console.log("Server running on port " + PORT);
+});
+
+/* ---------- DATABASE ---------- */
 let users = fs.existsSync("users.json")
   ? JSON.parse(fs.readFileSync("users.json"))
   : {};
@@ -19,32 +47,34 @@ function isPremium(id) {
   return users[id]?.premiumUntil && users[id].premiumUntil > Date.now();
 }
 
-function addPremium(id) {
-  users[id] = users[id] || { freeCount: 0, premiumUntil: 0 };
-  users[id].premiumUntil = Date.now() + 7 * 24 * 60 * 60 * 1000;
+function activatePremium(id) {
+  users[id].premiumUntil = Date.now() + 7 * 24 * 60 * 60 * 1000; // 7 days
   users[id].freeCount = 0;
   saveUsers();
 }
 
-/* -------------------- COMMANDS -------------------- */
+/* ---------- COMMANDS ---------- */
 
 // START
 bot.onText(/\/start/, (msg) => {
   const id = msg.from.id;
-  users[id] = users[id] || { freeCount: 0, premiumUntil: 0 };
-  saveUsers();
+  if (!users[id]) {
+    users[id] = { freeCount: 0, premiumUntil: 0 };
+    saveUsers();
+  }
 
   bot.sendMessage(
-    msg.chat.id,
+    id,
 `👋 Welcome to *English Practice Partner*
 
-🆓 Free: 3 practices/day
-⭐ Premium: Unlimited + Explanation
+🆓 Free: 3 practices/day  
+⭐ Premium: Unlimited + Explanation  
 
 Commands:
 /practice – Practice sentence
 /chat – Conversation (Premium)
-/upgrade – Buy Premium ⭐`,
+/upgrade – Buy Premium ⭐
+/status – Check account`,
     { parse_mode: "Markdown" }
   );
 });
@@ -55,26 +85,27 @@ bot.onText(/\/practice/, (msg) => {
 
   if (!isPremium(id) && users[id].freeCount >= 3) {
     return bot.sendMessage(
-      msg.chat.id,
+      id,
       "❌ Daily free limit reached.\nUpgrade to continue ➜ /upgrade"
     );
   }
 
-  bot.sendMessage(msg.chat.id, "✍️ Send your English sentence:");
+  bot.sendMessage(id, "✍️ Send your English sentence:");
 
   bot.once("message", (m) => {
     if (!m.text || m.text.startsWith("/")) return;
 
-    let reply = `✅ Corrected:\n${m.text}`;
+    let corrected = m.text; // placeholder
+    let reply = `✅ *Corrected:*\n${corrected}`;
 
     if (isPremium(id)) {
-      reply += `\n\n📘 Explanation:\nThe sentence has been corrected for proper grammar and tense.`;
+      reply += `\n\n📘 *Explanation:*\nThe sentence has been corrected for grammar and tense.`;
     } else {
-      users[id].freeCount++;
+      users[id].freeCount += 1;
       saveUsers();
     }
 
-    bot.sendMessage(msg.chat.id, reply);
+    bot.sendMessage(id, reply, { parse_mode: "Markdown" });
   });
 });
 
@@ -82,22 +113,35 @@ bot.onText(/\/practice/, (msg) => {
 bot.onText(/\/chat/, (msg) => {
   const id = msg.from.id;
   if (!isPremium(id)) {
-    return bot.sendMessage(msg.chat.id, "⭐ Chat mode is premium.\nUse /upgrade");
+    return bot.sendMessage(id, "⭐ Chat mode is premium.\nUse /upgrade");
   }
-  bot.sendMessage(msg.chat.id, "🗣️ Chat mode activated. Start chatting!");
+  bot.sendMessage(id, "🗣️ Chat mode active. Start chatting in English!");
 });
 
-/* -------------------- STARS UPGRADE -------------------- */
+// STATUS
+bot.onText(/\/status/, (msg) => {
+  const id = msg.from.id;
+  if (isPremium(id)) {
+    bot.sendMessage(id, "⭐ Premium active\n⏳ Valid for 7 days");
+  } else {
+    bot.sendMessage(id, "🆓 Free user\nUpgrade ➜ /upgrade");
+  }
+});
 
-bot.onText(/\/upgrade/, async (msg) => {
-  await bot.sendInvoice(
+/* ---------- TELEGRAM STARS PAYMENT ---------- */
+
+// UPGRADE
+bot.onText(/\/upgrade/, (msg) => {
+  bot.sendInvoice(
     msg.chat.id,
     "English Practice Partner – Premium",
     "Unlimited practice, explanations & chat for 7 days",
     "premium_7_days",
-    "",          // provider token EMPTY for Stars
-    "XTR",       // Stars currency
-    [{ label: "Premium (7 days)", amount: 10 }]
+    "",           // provider_token EMPTY for Stars
+    "XTR",        // Telegram Stars currency
+    [
+      { label: "Premium (7 days)", amount: 10 }
+    ]
   );
 });
 
@@ -108,15 +152,16 @@ bot.on("pre_checkout_query", (q) => {
 
 // PAYMENT SUCCESS
 bot.on("successful_payment", (msg) => {
-  addPremium(msg.from.id);
+  const id = msg.from.id;
+
+  if (!users[id]) {
+    users[id] = { freeCount: 0, premiumUntil: 0 };
+  }
+
+  activatePremium(id);
+
   bot.sendMessage(
     msg.chat.id,
     "✅ Payment successful!\n⭐ Premium activated for 7 days 🎉"
   );
 });
-
-/* -------------------- RENDER HTTP SERVER -------------------- */
-const app = express();
-app.get("/", (_, res) => res.send("Bot running"));
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log("Server running on " + PORT));
