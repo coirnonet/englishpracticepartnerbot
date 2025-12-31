@@ -2,29 +2,29 @@
  * English Practice Partner
  * Webhook + Telegram Stars
  * Render FREE compatible
+ * AI Grammar (OpenAI)
  ************************/
 
 const TelegramBot = require("node-telegram-bot-api");
 const express = require("express");
 const fs = require("fs");
-
 const OpenAI = require("openai");
 
+/* ---------- OPENAI ---------- */
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY
 });
 
 /* ---------- CONFIG ---------- */
 const TOKEN = process.env.BOT_TOKEN;
-const APP_URL = process.env.RENDER_EXTERNAL_URL; // Render auto provides
+const APP_URL = process.env.RENDER_EXTERNAL_URL;
 const PORT = process.env.PORT || 3000;
 
-/* ---------- BOT ---------- */
+/* ---------- BOT & SERVER ---------- */
 const bot = new TelegramBot(TOKEN);
 const app = express();
 app.use(express.json());
 
-/* ---------- WEBHOOK ---------- */
 bot.setWebHook(`${APP_URL}/bot${TOKEN}`);
 
 app.post(`/bot${TOKEN}`, (req, res) => {
@@ -54,13 +54,15 @@ function isPremium(id) {
 }
 
 function activatePremium(id) {
+  users[id] = users[id] || { freeCount: 0, premiumUntil: 0 };
   users[id].premiumUntil = Date.now() + 7 * 24 * 60 * 60 * 1000; // 7 days
   users[id].freeCount = 0;
   saveUsers();
 }
 
-async function checkGrammar(sentence, isPremium) {
-  const systemPrompt = isPremium
+/* ---------- AI GRAMMAR ---------- */
+async function checkGrammar(sentence, premium) {
+  const systemPrompt = premium
     ? "You are an English teacher. Correct the sentence and explain the grammar clearly."
     : "Correct the English sentence only. No explanation.";
 
@@ -76,23 +78,20 @@ async function checkGrammar(sentence, isPremium) {
   return response.choices[0].message.content;
 }
 
-
 /* ---------- COMMANDS ---------- */
 
 // START
 bot.onText(/\/start/, (msg) => {
   const id = msg.from.id;
-  if (!users[id]) {
-    users[id] = { freeCount: 0, premiumUntil: 0 };
-    saveUsers();
-  }
+  users[id] = users[id] || { freeCount: 0, premiumUntil: 0 };
+  saveUsers();
 
   bot.sendMessage(
-    id,
+    msg.chat.id,
 `👋 Welcome to *English Practice Partner*
 
-🆓 Free: 3 practices/day  
-⭐ Premium: Unlimited + Explanation  
+🆓 Free: 3 practices/day
+⭐ Premium: Unlimited + Explanation
 
 Commands:
 /practice – Practice sentence
@@ -103,33 +102,34 @@ Commands:
   );
 });
 
-// PRACTICE
+// PRACTICE (AI)
 bot.onText(/\/practice/, (msg) => {
   const id = msg.from.id;
 
   if (!isPremium(id) && users[id].freeCount >= 3) {
     return bot.sendMessage(
-      id,
+      msg.chat.id,
       "❌ Daily free limit reached.\nUpgrade to continue ➜ /upgrade"
     );
   }
 
-  bot.sendMessage(id, "✍️ Send your English sentence:");
+  bot.sendMessage(msg.chat.id, "✍️ Send your English sentence:");
 
-  bot.once("message", (m) => {
+  bot.once("message", async (m) => {
     if (!m.text || m.text.startsWith("/")) return;
 
-    let corrected = m.text; // placeholder
-    let reply = `✅ *Corrected:*\n${corrected}`;
+    const aiReply = await checkGrammar(m.text, isPremium(id));
 
-    if (isPremium(id)) {
-      reply += `\n\n📘 *Explanation:*\nThe sentence has been corrected for grammar and tense.`;
-    } else {
+    let reply = isPremium(id)
+      ? `✅ *Corrected + Explanation:*\n${aiReply}`
+      : `✅ *Corrected:*\n${aiReply}`;
+
+    if (!isPremium(id)) {
       users[id].freeCount += 1;
       saveUsers();
     }
 
-    bot.sendMessage(id, reply, { parse_mode: "Markdown" });
+    bot.sendMessage(msg.chat.id, reply, { parse_mode: "Markdown" });
   });
 });
 
@@ -137,53 +137,41 @@ bot.onText(/\/practice/, (msg) => {
 bot.onText(/\/chat/, (msg) => {
   const id = msg.from.id;
   if (!isPremium(id)) {
-    return bot.sendMessage(id, "⭐ Chat mode is premium.\nUse /upgrade");
+    return bot.sendMessage(msg.chat.id, "⭐ Chat mode is premium.\nUse /upgrade");
   }
-  bot.sendMessage(id, "🗣️ Chat mode active. Start chatting in English!");
+  bot.sendMessage(msg.chat.id, "🗣️ Chat mode active. Start chatting in English!");
 });
 
 // STATUS
 bot.onText(/\/status/, (msg) => {
   const id = msg.from.id;
   if (isPremium(id)) {
-    bot.sendMessage(id, "⭐ Premium active\n⏳ Valid for 7 days");
+    bot.sendMessage(msg.chat.id, "⭐ Premium active\n⏳ Valid for 7 days");
   } else {
-    bot.sendMessage(id, "🆓 Free user\nUpgrade ➜ /upgrade");
+    bot.sendMessage(msg.chat.id, "🆓 Free user\nUpgrade ➜ /upgrade");
   }
 });
 
 /* ---------- TELEGRAM STARS PAYMENT ---------- */
 
-// UPGRADE
 bot.onText(/\/upgrade/, (msg) => {
   bot.sendInvoice(
     msg.chat.id,
     "English Practice Partner – Premium",
     "Unlimited practice, explanations & chat for 7 days",
     "premium_7_days",
-    "",           // provider_token EMPTY for Stars
-    "XTR",        // Telegram Stars currency
-    [
-      { label: "Premium (7 days)", amount: 10 }
-    ]
+    "",        // provider token EMPTY for Stars
+    "XTR",     // Telegram Stars currency
+    [{ label: "Premium (7 days)", amount: 10 }]
   );
 });
 
-// REQUIRED
 bot.on("pre_checkout_query", (q) => {
   bot.answerPreCheckoutQuery(q.id, true);
 });
 
-// PAYMENT SUCCESS
 bot.on("successful_payment", (msg) => {
-  const id = msg.from.id;
-
-  if (!users[id]) {
-    users[id] = { freeCount: 0, premiumUntil: 0 };
-  }
-
-  activatePremium(id);
-
+  activatePremium(msg.from.id);
   bot.sendMessage(
     msg.chat.id,
     "✅ Payment successful!\n⭐ Premium activated for 7 days 🎉"
