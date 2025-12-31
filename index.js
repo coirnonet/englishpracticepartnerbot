@@ -2,6 +2,44 @@ const TelegramBot = require("node-telegram-bot-api");
 const fs = require("fs");
 const express = require("express");
 
+bot.onText(/\/upgrade/, async (msg) => {
+  const chatId = msg.chat.id;
+
+  await bot.sendInvoice(
+    chatId,
+    "English Practice Partner – Premium",
+    "Unlimited practice, explanations & chat for 7 days",
+    "premium_7_days",              // payload
+    "",                             // provider_token EMPTY for Stars
+    "XTR",                          // currency for Telegram Stars
+    [
+      { label: "Premium (7 days)", amount: 10 } // 10 Stars
+    ]
+  );
+});
+
+bot.on("pre_checkout_query", (query) => {
+  bot.answerPreCheckoutQuery(query.id, true);
+});
+
+bot.on("successful_payment", (msg) => {
+  const userId = msg.from.id;
+
+  if (!users[userId]) {
+    users[userId] = { freeCount: 0, premiumUntil: 0 };
+  }
+
+  users[userId].premiumUntil = Date.now() + 7 * 24 * 60 * 60 * 1000; // 7 days
+  users[userId].freeCount = 0;
+  saveUsers();
+
+  bot.sendMessage(
+    msg.chat.id,
+    "✅ Payment successful!\n⭐ Premium activated for 7 days 🎉"
+  );
+});
+
+
 const TOKEN = process.env.BOT_TOKEN;
 const bot = new TelegramBot(TOKEN, { polling: true });
 
