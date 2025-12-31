@@ -11,7 +11,36 @@ let users = fs.existsSync("users.json")
 function saveUsers() {
   fs.writeFileSync("users.json", JSON.stringify(users, null, 2));
 }
+// ===== UPGRADE COMMAND (TELEGRAM STARS) =====
+bot.onText(/\/upgrade/, async (msg) => {
+  const chatId = msg.chat.id;
 
+  await bot.sendMessage(
+    chatId,
+`⭐ *Premium Plan*
+
+• Unlimited practice
+• Full grammar explanation
+• Conversation mode
+
+💰 Price: *10 Stars / 7 days*
+
+⚠️ Stars are non-refundable.`,
+    {
+      parse_mode: "Markdown",
+      reply_markup: {
+        inline_keyboard: [
+          [
+            {
+              text: "⭐ Upgrade for 10 Stars",
+              pay: true
+            }
+          ]
+        ]
+      }
+    }
+  );
+});
 function isPremium(id) {
   return users[id]?.premiumUntil && users[id].premiumUntil > Date.now();
 }
