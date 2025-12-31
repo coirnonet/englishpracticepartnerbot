@@ -59,6 +59,24 @@ function activatePremium(id) {
   saveUsers();
 }
 
+async function checkGrammar(sentence, isPremium) {
+  const systemPrompt = isPremium
+    ? "You are an English teacher. Correct the sentence and explain the grammar clearly."
+    : "Correct the English sentence only. No explanation.";
+
+  const response = await openai.chat.completions.create({
+    model: "gpt-4o-mini",
+    messages: [
+      { role: "system", content: systemPrompt },
+      { role: "user", content: sentence }
+    ],
+    temperature: 0.2
+  });
+
+  return response.choices[0].message.content;
+}
+
+
 /* ---------- COMMANDS ---------- */
 
 // START
