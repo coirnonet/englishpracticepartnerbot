@@ -8,6 +8,12 @@ const TelegramBot = require("node-telegram-bot-api");
 const express = require("express");
 const fs = require("fs");
 
+const OpenAI = require("openai");
+
+const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY
+});
+
 /* ---------- CONFIG ---------- */
 const TOKEN = process.env.BOT_TOKEN;
 const APP_URL = process.env.RENDER_EXTERNAL_URL; // Render auto provides
